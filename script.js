@@ -1772,3 +1772,122 @@ function actualizarEstadoBotonPublicar() {
     btn.style.cursor = "not-allowed";
   }
 }
+
+/* ============================================================
+   DESCARGAR TXT PARA FICHA CITE
+============================================================ */
+function generarTextoFichaCite() {
+  const titulo = document.getElementById('tituloEvidencia')?.value?.trim() || "";
+
+  const objetivos = jq('#objetivosCite') ? (jq('#objetivosCite').val() || []) : [];
+  const grupos = jq('#grupos') ? (jq('#grupos').val() || []) : [];
+  const relacion = jq('#relProyecto') ? (jq('#relProyecto').val() || []) : [];
+  const metodologias = jq('#metodologiasActivas') ? (jq('#metodologiasActivas').val() || []) : [];
+
+  const descripcion = document.getElementById('descripcion')?.value?.trim() || "";
+
+  const dificultadesModeloSeleccionada = jq('#dificultadesEncontradasModelo')
+    ? (jq('#dificultadesEncontradasModelo').val() || [])
+    : [];
+
+  const dificultades =
+    document.getElementById('dificultades')?.value?.trim() ||
+    dificultadesModeloSeleccionada.join(" ") ||
+    "";
+
+  const preparacionDescripcion = document.getElementById('descripcionPreparados')?.value?.trim() || "";
+  const preparacionTiempo = jq('#tiempoPreparacion') ? (jq('#tiempoPreparacion').val() || "") : "";
+
+  const sesiones = jq('#tiempoSesiones') ? (jq('#tiempoSesiones').val() || "") : "";
+  const horas = jq('#tiempoHoras') ? (jq('#tiempoHoras').val() || "") : "";
+  const minutos = jq('#tiempoMinutos') ? (jq('#tiempoMinutos').val() || "") : "";
+
+  const difPorcentajeModelo = jq('#dificultadesModelo')
+    ? (jq('#dificultadesModelo').val() || [])
+    : [];
+
+  const difPorcentajeOtros = document.getElementById('dificultadesPorcentajeTrabajo')?.value?.trim() || "";
+  const dificultadesPorcentajeTrabajo = difPorcentajeModelo.join(" ") || difPorcentajeOtros || "";
+
+  const herramientas = jq('#herramientasTec') ? (jq('#herramientasTec').val() || []) : [];
+  const paginasWeb = jq('#paginasWeb') ? (jq('#paginasWeb').val() || []) : [];
+  const software = jq('#softwareEspecifico') ? (jq('#softwareEspecifico').val() || []) : [];
+  const multimediaTec = jq('#elementosMultimediaTec') ? (jq('#elementosMultimediaTec').val() || []) : [];
+  const otrosTec = document.getElementById('otrosTec')?.value?.trim() || "";
+
+  const partesTecnologia = [];
+
+  if (herramientas.length) partesTecnologia.push(herramientas.join(", "));
+  if (paginasWeb.length) partesTecnologia.push(paginasWeb.join(", "));
+  if (software.length) partesTecnologia.push(software.join(", "));
+  if (multimediaTec.length) partesTecnologia.push(multimediaTec.join(", "));
+  if (otrosTec) partesTecnologia.push(otrosTec);
+
+  const tecnologiaTexto = partesTecnologia.length
+    ? "\n\nAdemás, los elementos tecnológicos específicos usados en la actividad fueron: " + partesTecnologia.join(", ") + "."
+    : "";
+
+  return [
+    "Nombre para referenciar esta evidencia:",
+    titulo,
+    "",
+    "Objetivo/s principal/es:",
+    objetivos.join(" "),
+    "",
+    "Grupo o grupos de alumnado con el que se realiza la actividad:",
+    grupos.join(" "),
+    "",
+    "Descripción de la actividad:",
+    descripcion,
+    "",
+    "Metodologías activas utilizadas:",
+    metodologias.join(", "),
+    "",
+    "Relación de la actividad con el proyecto CITE del centro:",
+    relacion.join(" ") + tecnologiaTexto,
+    "",
+    "Dificultades encontradas:",
+    dificultades,
+    "",
+    "Trabajo de preparación previa del docente:",
+    preparacionDescripcion +
+      (preparacionTiempo
+        ? "\n\nTiempo dedicado a la preparación: " + preparacionTiempo + "."
+        : ""),
+    "",
+    "Horas de trabajo del alumnado en el aula:",
+    [sesiones, horas, minutos].filter(Boolean).join(" · "),
+    "",
+    "Dificultades encontradas para poder alcanzar el % de trabajo con el alumnado:",
+    dificultadesPorcentajeTrabajo
+  ].join("\n");
+}
+
+function descargarTxtFichaCite() {
+  if (PROYECTO_ACTUAL !== "CITE") {
+    alert("Este botón está preparado solo para el proyecto CITE.");
+    return;
+  }
+
+  const titulo = document.getElementById('tituloEvidencia')?.value?.trim() || "ficha_cite";
+  const texto = generarTextoFichaCite();
+
+  const blob = new Blob([texto], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${titulo.replace(/[\\/:*?"<>|]/g, "_")}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  URL.revokeObjectURL(url);
+}
+
+window.addEventListener("load", () => {
+  const btnDescargarTxtFicha = document.getElementById("btnDescargarTxtFicha");
+  if (btnDescargarTxtFicha) {
+    btnDescargarTxtFicha.addEventListener("click", descargarTxtFichaCite);
+  }
+});
