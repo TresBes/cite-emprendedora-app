@@ -445,33 +445,226 @@ function initLimpiezaErroresDinamica() {
 quitarErrorBloqueAlCambiarMultimedia('#videosCiteMedia', 'cite6');
 }
 /* ============================================================
-   DROPZONE / IMÁGENES (GENÉRICO)
+   IMÁGENES: MÁXIMO 4 + COMPRESIÓN INTELIGENTE
+   - Se permite subir hasta 4 imágenes por bloque
+   - Se comprimen al cargarlas
+   - Al publicar, se recompresan en conjunto si hace falta
 ============================================================ */
-function handleFiles(preview, files) {
-  [...files].forEach(file => {
-    if (!file.type.startsWith("image/")) return;
+const MAX_IMAGENES_POR_BLOQUE = 4;
+const MAX_TOTAL_BYTES_PUBLICACION = 1.3 * 1024 * 1024; // 1,3 MB
+const MAX_DIMENSION_IMAGEN = 1600;
+const JPEG_QUALITY_INICIAL = 0.82;
+const JPEG_QUALITY_MINIMA = 0.35;
 
+function dataURLToBytes(dataURL) {
+  const base64 = dataURL.split(",")[1] || "";
+  return Math.ceil((base64.length * 3) / 4);
+}
+
+function calcularPesoTotalPreview(preview) {
+  if (!preview) return 0;
+
+  const imagenes = preview.querySelectorAll(".img-wrapper img");
+  let total = 0;
+
+  imagenes.forEach(img => {
+    if (img.src && img.src.startsWith("data:")) {
+      total += dataURLToBytes(img.src);
+    }
+  });
+
+  return total;
+}
+
+function cargarImagenDesdeDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+function exportarCanvasComoJpeg(canvas, quality) {
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+async function comprimirImagen(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = e => {
+
+    reader.onload = async function (ev) {
+      try {
+        const img = await cargarImagenDesdeDataUrl(ev.target.result);
+
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_DIMENSION_IMAGEN || height > MAX_DIMENSION_IMAGEN) {
+          const ratio = Math.min(MAX_DIMENSION_IMAGEN / width, MAX_DIMENSION_IMAGEN / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        let quality = JPEG_QUALITY_INICIAL;
+        let dataUrl = exportarCanvasComoJpeg(canvas, quality);
+
+        while (dataURLToBytes(dataUrl) > 500 * 1024 && quality > JPEG_QUALITY_MINIMA) {
+          quality -= 0.05;
+          dataUrl = exportarCanvasComoJpeg(canvas, quality);
+        }
+
+        resolve(dataUrl);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function recomprimirDataUrl(dataUrl, quality = 0.75, maxDimension = MAX_DIMENSION_IMAGEN) {
+  const img = await cargarImagenDesdeDataUrl(dataUrl);
+
+  let width = img.width;
+  let height = img.height;
+
+  if (width > maxDimension || height > maxDimension) {
+    const ratio = Math.min(maxDimension / width, maxDimension / height);
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+
+  return exportarCanvasComoJpeg(canvas, quality);
+}
+
+async function handleFiles(preview, files) {
+  const archivosImagen = [...files].filter(file => file.type.startsWith("image/"));
+
+  if (!archivosImagen.length) return;
+
+  const yaHay = preview.querySelectorAll(".img-wrapper").length;
+
+  if (yaHay >= MAX_IMAGENES_POR_BLOQUE) {
+    mostrarMensaje(`❌ Solo se permiten ${MAX_IMAGENES_POR_BLOQUE} fotos`);
+    return;
+  }
+
+  if (yaHay + archivosImagen.length > MAX_IMAGENES_POR_BLOQUE) {
+    mostrarMensaje(`❌ Solo se permiten ${MAX_IMAGENES_POR_BLOQUE} fotos en total`);
+    return;
+  }
+
+  for (const file of archivosImagen) {
+    try {
+      const dataUrlComprimida = await comprimirImagen(file);
+
       const wrap = document.createElement("div");
       wrap.className = "img-wrapper";
 
       const img = document.createElement("img");
-      img.src = e.target.result;
+      img.src = dataUrlComprimida;
       img.className = "vista-img";
 
       const btn = document.createElement("button");
       btn.className = "delete-btn";
       btn.textContent = "×";
-      btn.onclick = () => wrap.remove();
+      btn.onclick = () => {
+        wrap.remove();
+        preview.dispatchEvent(new Event("contenidoCambiado", { bubbles: true }));
+      };
 
       wrap.appendChild(img);
       wrap.appendChild(btn);
       preview.appendChild(wrap);
       preview.dispatchEvent(new Event("contenidoCambiado", { bubbles: true }));
-    };
-    reader.readAsDataURL(file);
-  });
+
+    } catch (error) {
+      console.error("Error al procesar imagen:", error);
+      mostrarMensaje("❌ No se pudo procesar una imagen");
+    }
+  }
+}
+
+function obtenerImagenesProyectoActual() {
+  if (PROYECTO_ACTUAL === "CITE") {
+    return [
+      ...document.querySelectorAll("#previewPreparados .img-wrapper img"),
+      ...document.querySelectorAll("#previewCiteMedia .img-wrapper img")
+    ];
+  }
+
+  if (PROYECTO_ACTUAL === "EMPRENDEDORA") {
+    return [...document.querySelectorAll("#previewEmpMedia .img-wrapper img")];
+  }
+
+  if (PROYECTO_ACTUAL === "AULA_DEL_FUTURO") {
+    return [...document.querySelectorAll("#previewAulaMedia .img-wrapper img")];
+  }
+
+  return [];
+}
+
+function calcularPesoTotalImagenesProyectoActual() {
+  const imagenes = obtenerImagenesProyectoActual();
+  return imagenes.reduce((acc, img) => {
+    if (img.src && img.src.startsWith("data:")) {
+      return acc + dataURLToBytes(img.src);
+    }
+    return acc;
+  }, 0);
+}
+
+async function prepararImagenesParaPublicar() {
+  const imagenes = obtenerImagenesProyectoActual();
+
+  if (!imagenes.length) return true;
+
+  let total = calcularPesoTotalImagenesProyectoActual();
+  if (total <= MAX_TOTAL_BYTES_PUBLICACION) return true;
+
+  const intentos = [
+    { quality: 0.72, dim: 1400 },
+    { quality: 0.65, dim: 1300 },
+    { quality: 0.58, dim: 1200 },
+    { quality: 0.50, dim: 1100 },
+    { quality: 0.42, dim: 1000 }
+  ];
+
+  const originales = imagenes.map(img => img.src);
+
+  for (const intento of intentos) {
+    for (let i = 0; i < imagenes.length; i++) {
+      try {
+        imagenes[i].src = await recomprimirDataUrl(originales[i], intento.quality, intento.dim);
+      } catch (error) {
+        console.error("Error recomprimiendo imagen:", error);
+      }
+    }
+
+    total = calcularPesoTotalImagenesProyectoActual();
+    if (total <= MAX_TOTAL_BYTES_PUBLICACION) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function wireDropzone(zoneId, previewId) {
@@ -522,7 +715,6 @@ function wireDropzone(zoneId, previewId) {
     handleFiles(preview, e.dataTransfer.files);
   });
 }
-
 
 /* ============================================================
    VÍDEOS (GENÉRICO)
@@ -609,7 +801,6 @@ function insertarVideoYoutube(contenedorId, url) {
 function agregarVideo(contenedorId) {
   abrirModalYoutube(contenedorId);
 }
-
 
 /* ============================================================
    MENSAJE GENÉRICO
@@ -1314,15 +1505,22 @@ if (btnConectarBlogger) {
 const btnPublicarBlogger = document.getElementById("btnPublicarBlogger");
 
 if (btnPublicarBlogger) {
-  btnPublicarBlogger.addEventListener("click", () => {
+btnPublicarBlogger.addEventListener("click", async () => {
     const btn = document.getElementById("btnPublicarBlogger");
     if (btn) btn.disabled = true;
 
     const errores = validarAntesDePublicar();
-    if (errores.length) {
-      if (btn) btn.disabled = false;
-      return mostrarModalErrores(errores);
-    }
+if (errores.length) {
+  if (btn) btn.disabled = false;
+  return mostrarModalErrores(errores);
+}
+
+const imagenesOk = await prepararImagenesParaPublicar();
+if (!imagenesOk) {
+  if (btn) btn.disabled = false;
+  mostrarMensaje("❌ No ha sido posible reducir las imágenes lo suficiente para publicar");
+  return;
+}
 
     if (typeof publicarEnBlogger !== "function") {
       if (btn) btn.disabled = false;
